@@ -88,7 +88,7 @@
             Без HTTPS датчики вимкнено. <span class="text-amber-200 underline">Тягніть пальцем по колбі</span>, щоб нахиляти гравітацію.
         </div>
 
-        <!-- Вибір часу та Подвійний таймер (для порівняння) -->
+        <!-- Вибір часу та Таймер -->
         <div class="glass-panel px-3 py-2 rounded-2xl flex items-center justify-between gap-2">
             <div class="flex items-center gap-1" id="duration-group">
                 <button data-sec="30" class="dur-btn btn-interactive px-2 py-1.5 rounded-lg text-xs font-semibold text-slate-300">30с</button>
@@ -96,17 +96,8 @@
                 <button data-sec="180" class="dur-btn btn-interactive px-2 py-1.5 rounded-lg text-xs font-semibold text-slate-300">3хв</button>
             </div>
             
-            <!-- Порівняння годинника з реальним часом -->
-            <div class="flex items-center gap-2.5 px-2">
-                <div class="flex flex-col items-center">
-                    <span class="text-[9px] text-amber-500/80 uppercase font-bold tracking-wider mb-0.5">Пісок</span>
-                    <span id="sand-timer" class="font-mono-time text-sm text-amber-300">01:00</span>
-                </div>
-                <div class="w-px h-6 bg-slate-700"></div>
-                <div class="flex flex-col items-center">
-                    <span class="text-[9px] text-sky-500/80 uppercase font-bold tracking-wider mb-0.5">Реал</span>
-                    <span id="real-timer" class="font-mono-time text-sm text-sky-300">01:00</span>
-                </div>
+            <div class="px-2">
+                <span id="main-timer" class="font-mono-time text-lg font-bold text-amber-400 tracking-wider">01:00</span>
             </div>
         </div>
     </header>
@@ -186,7 +177,7 @@
             
             const W = 150;
             const H = 260;
-            const SCALE = 2.5;
+            const SCALE = 1.6; // Зменшено у 1.5 рази для "повітря"
             canvas.width = W * SCALE;
             canvas.height = H * SCALE;
 
@@ -209,9 +200,12 @@
             let manualInvert = false;
             let sensorActive = false;
 
-            // Таймінги
-            let durationSec = 60;
-            let startTime = performance.now();
+            // Таймінги та потік піску (Жорстка прив'язка до реального часу)
+            let durationMs = 60000;
+            let elapsedMs = 0;
+            let currentSide = 1; // 1 = gy >= 0, -1 = gy < 0
+            
+            let lastTime = performance.now();
             let totalGrains = 0;
             let finishedNotified = false;
 
@@ -254,7 +248,9 @@
                         }
                     }
                 }
-                startTime = performance.now();
+                lastTime = performance.now();
+                elapsedMs = 0;
+                currentSide = gy >= 0 ? 1 : -1;
                 finishedNotified = false;
             }
 
@@ -354,7 +350,6 @@
             document.getElementById('btn-flip').addEventListener('click', () => {
                 manualInvert = !manualInvert;
                 gx = 0; gy = manualInvert ? -1 : 1;
-                startTime = performance.now();
                 finishedNotified = false;
             });
 
@@ -373,7 +368,7 @@
                 });
                 btn.classList.add('active-dur', 'bg-amber-500/20', 'text-amber-300', 'border-amber-500/40');
                 btn.classList.remove('text-slate-300');
-                durationSec = Number(btn.dataset.sec);
+                durationMs = Number(btn.dataset.sec) * 1000;
                 fillSand();
             });
 
@@ -398,10 +393,10 @@
                 const tmp = colorShift[b]; colorShift[b] = colorShift[a]; colorShift[a] = tmp;
             }
 
-            // Рахує залишок піску у "верхній" половині відносно гравітації
+            // Рахує залишок піску у "верхній" половині відносно ЛОГІЧНОЇ гравітації (currentSide)
             function countActiveHalf() {
                 let count = 0;
-                const checkTop = gy >= 0;
+                const checkTop = currentSide === 1;
                 for (let y = TOP_Y; y <= BOT_Y; y++) {
                     if ((checkTop && y < CY) || (!checkTop && y > CY)) {
                         for (let x = 1; x < W - 1; x++) {
@@ -514,22 +509,38 @@
             fillSand();
 
             function loop() {
-                const activeHalf = countActiveHalf();
                 const now = performance.now();
-                const elapsedSec = (now - startTime) / 1000;
+                // Cap dt to 100ms max to prevent jumps when tab is inactive
+                const dt = Math.min(100, now - lastTime);
+                lastTime = now;
+
+                // 1. Оновлення стану сторін та реального таймера
+                const newSide = gy >= 0 ? 1 : -1;
+                // Гістерезис: перевертання рахується, якщо нахил хоча б > ~11 градусів від горизонту
+                if (newSide !== currentSide && Math.abs(gy) > 0.2) {
+                    currentSide = newSide;
+                    // ПІД ЧАС ПОВОРОТУ: міняємо місцями elapsed і remaining!
+                    elapsedMs = durationMs - Math.min(elapsedMs, durationMs);
+                }
+
+                // Якщо годинник лежить на боці (близько до горизонталі) - ставимо час на ПАУЗУ
+                const isHorizontal = Math.abs(gy) <= 0.2;
+                if (!isHorizontal) {
+                    elapsedMs += dt;
+                    if (elapsedMs > durationMs) elapsedMs = durationMs;
+                }
+
+                const remainingMs = Math.max(0, durationMs - elapsedMs);
+                const activeHalf = countActiveHalf();
                 
-                // РЕАЛЬНИЙ ГОДИННИК: Залишок реального часу
-                const realRemaining = Math.max(0, Math.ceil(durationSec - elapsedSec));
-                document.getElementById('real-timer').textContent = formatTime(realRemaining);
+                // Рівномірний потік: скільки піщинок ідеально мало б залишитись за реальним часом
+                const idealActiveHalf = (remainingMs / durationMs) * totalGrains;
+                
+                // Дозволяємо впасти лише тому піску, який "відстає" від таймера
+                let budgetVal = Math.max(0, Math.floor(activeHalf - idealActiveHalf));
+                let budgetState = { val: budgetVal };
 
-                // ТОЧНА СИНХРОНІЗАЦІЯ ПІСКУ З ЧАСОМ:
-                // Рахуємо, скільки піщинок МАЛО пересипатися станом на цю мілісекунду
-                const targetPassed = (Math.min(elapsedSec, durationSec) / durationSec) * totalGrains;
-                const currentlyPassed = totalGrains - activeHalf;
-                // Бюджет = дефіцит піщинок (наскільки ми відстаємо від таймера)
-                let budgetState = { val: Math.max(0, Math.floor(targetPassed - currentlyPassed)) };
-
-                // Виконуємо фізику (6 проходів для плинності), передаючи спільний бюджет
+                // Виконуємо фізику (6 проходів для швидкої плинності)
                 for (let i = 0; i < 6; i++) {
                     stepPhysics(budgetState);
                 }
@@ -540,11 +551,10 @@
                 document.getElementById('gravity-arrow').style.transform = `rotate(${-angleDeg}deg)`;
                 document.getElementById('angle-display').textContent = `${Math.abs(angleDeg)}°`;
 
-                // ГОДИННИК ПІСКУ: Відображає відсоток залишку піску в колбі
-                const sandRemainingSec = Math.max(0, Math.ceil((activeHalf / totalGrains) * durationSec));
-                document.getElementById('sand-timer').textContent = formatTime(sandRemainingSec);
+                // ГОДИННИК ПІСКУ: Відображає реальний таймер, прив'язаний до системного часу
+                document.getElementById('main-timer').textContent = formatTime(Math.ceil(remainingMs / 1000));
 
-                if (activeHalf === 0 && !finishedNotified && elapsedSec > 1.5) {
+                if (remainingMs <= 0 && activeHalf === 0 && !finishedNotified && totalGrains > 0) {
                     finishedNotified = true;
                     playChime();
                     showToast('Час вийшов!');
