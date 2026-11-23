@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Пісочний годинник</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100dvh;
+            overflow: hidden;
+            touch-action: none;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: radial-gradient(circle at 50% 35%, #161d2e 0%, #090d16 70%, #04060b 100%);
+            color: #f1f5f9;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        }
+
+        .btn-interactive {
+            transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+        }
+        .btn-interactive:active {
+            transform: scale(0.95);
+        }
+
+        #hourglass-canvas {
+            display: block;
+            filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.8));
+        }
+
+        @keyframes pulse-border {
+            0%, 100% { border-color: rgba(245, 158, 11, 0.4); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.2); }
+            50% { border-color: rgba(245, 158, 11, 0.9); box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.25); }
+        }
+        .sensor-prompt {
+            animation: pulse-border 2.5s infinite;
+        }
+    </style>
+</head>
+<body class="flex flex-col justify-between items-center relative">
+
+    <header class="w-full max-w-md px-4 pt-4 pb-1 z-20 flex flex-col gap-2.5">
+        <div class="flex items-center justify-between gap-2">
+            <button id="btn-sensors" class="sensor-prompt btn-interactive glass-panel px-3.5 py-2.5 rounded-2xl flex items-center gap-2.5 text-xs font-semibold text-amber-300 flex-1">
+                <span id="sensor-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0"></span>
+                <span id="sensor-label" class="leading-tight text-left">Увімкнути датчики</span>
+            </button>
+
+            <div class="glass-panel px-3 py-2.5 rounded-2xl flex items-center gap-2 text-xs text-slate-300 shrink-0">
+                <svg id="gravity-arrow" class="w-4 h-4 text-amber-400 transition-transform duration-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M12 4v16M12 20l-5-5M12 20l5-5"/>
+                </svg>
+                <span id="angle-display" class="font-mono font-semibold text-slate-100">0°</span>
+            </div>
+        </div>
+
+        <div id="insecure-banner" class="hidden glass-panel border-rose-500/40 bg-rose-950/50 px-3 py-2 rounded-xl text-[11px] leading-snug text-rose-200 flex items-start gap-2">
+            <span class="text-rose-400 font-bold text-sm leading-none mt-0.5">!</span>
+            <div>
+                Відкрито локально. Браузер блокує гіроскоп. <span class="text-amber-200 underline">Тягніть пальцем</span> по годиннику для нахилу!
+            </div>
+        </div>
+
+        <div class="glass-panel px-3 py-2 rounded-2xl flex items-center justify-between gap-2">
+            <div class="flex items-center gap-1" id="duration-group">
+                <button data-sec="30" class="dur-btn btn-interactive px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:bg-white/10">30с</button>
+                <button data-sec="60" class="dur-btn active-dur btn-interactive px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40">1хв</button>
+                <button data-sec="180" class="dur-btn btn-interactive px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:bg-white/10">3хв</button>
+                <button data-sec="300" class="dur-btn btn-interactive px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:bg-white/10">5хв</button>
+            </div>
+            <button id="btn-toggle-timer" class="btn-interactive flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/60 border border-white/5">
+                <span id="timer-text" class="font-mono text-sm font-bold tracking-wider text-slate-100">01:00</span>
+            </button>
+        </div>
+    </header>
+
+    <main id="stage" class="relative flex-1 w-full flex items-center justify-center overflow-hidden">
+        <canvas id="hourglass-canvas"></canvas>
+        <div id="toast" class="pointer-events-none opacity-0 transition-opacity duration-300 absolute top-4 left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-full text-xs font-medium text-amber-200 border-amber-400/30 whitespace-nowrap z-30">
+            Час вийшов!
+        </div>
+    </main>
+
+    <footer class="w-full max-w-md px-4 pb-5 pt-1 z-20 flex flex-col gap-2.5">
+        <div class="glass-panel px-3 py-2.5 rounded-2xl flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5" id="color-group">
+                <button data-theme="gold" class="color-btn btn-interactive w-7 h-7 rounded-full border-2 border-white shadow-md scale-110" style="background: radial-gradient(circle at 30% 30%, #fde68a, #d97706);"></button>
+                <button data-theme="cyan" class="color-btn btn-interactive w-7 h-7 rounded-full border-2 border-transparent opacity-75 hover:opacity-100" style="background: radial-gradient(circle at 30% 30%, #67e8f9, #0891b2);"></button>
+                <button data-theme="ruby" class="color-btn btn-interactive w-7 h-7 rounded-full border-2 border-transparent opacity-75 hover:opacity-100" style="background: radial-gradient(circle at 30% 30%, #fda4af, #e11d48);"></button>
+                <button data-theme="violet" class="color-btn btn-interactive w-7 h-7 rounded-full border-2 border-transparent opacity-75 hover:opacity-100" style="background: radial-gradient(circle at 30% 30%, #d8b4fe, #7c3aed);"></button>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="btn-flip" class="btn-interactive px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-xs font-semibold flex items-center gap-1.5">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                    </svg>
+                    <span>Перевернути</span>
+                </button>
+                <button id="btn-reset" class="btn-interactive p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 text-slate-200">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        (() => {
+            const canvas = document.getElementById('hourglass-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            const W = 160;
+            const H = 280;
+            const SCALE = 2;
+            canvas.width = W * SCALE;
+            canvas.height = H * SCALE;
+
+            const EMPTY = 0;
+            const WALL = 1;
+            const SAND = 2;
+
+            const grid = new Uint8Array(W * H);
+            const colorShift = new Uint8Array(W * H);
+
+            const THEMES = {
+                gold: ['#fde68a', '#fcd34d', '#f59e0b', '#d97706'],
+                cyan: ['#a5f3fc', '#67e8f9', '#06b6d4', '#0891b2'],
+                ruby: ['#fecdd3', '#fda4af', '#f43f5e', '#e11d48'],
+                violet: ['#e9d5ff', '#d8b4fe', '#a855f7', '#7e22ce']
+            };
+            let currentTheme = THEMES.gold;
+
+            let gx = 0;
+            let gy = 1;
+            let manualInvert = false;
+            let sensorActive = false;
+
+            let durationSec = 60;
+            let totalGrains = 0;
+            let startTime = performance.now();
+            let finishedNotified = false;
+            let throatBudget = 0;
+            let isTimerVisible = true;
+
+            const CX = Math.floor(W / 2);
+            const CY = Math.floor(H / 2);
+            const TOP_Y = 18;
+            const BOT_Y = H - 18;
+            const MAX_HALF_W = 65;
+            const NECK_HALF_W = 3;
+
+            function bulbHalfWidth(y) {
+                const dy = Math.abs(y - CY);
+                const maxDy = CY - TOP_Y;
+                const t = Math.min(1, dy / maxDy);
+                const curve = Math.pow(Math.sin((t * Math.PI) / 2), 1.5);
+                return Math.round(NECK_HALF_W + (MAX_HALF_W - NECK_HALF_W) * curve);
+            }
+
+            function fillSand() {
+                grid.fill(EMPTY);
+                for (let y = 0; y < H; y++) {
+                    for (let x = 0; x < W; x++) {
+                        if (y < TOP_Y || y > BOT_Y) {
+                            grid[y * W + x] = WALL;
+                            continue;
+                        }
+                        if (Math.abs(x - CX) >= bulbHalfWidth(y)) {
+                            grid[y * W + x] = WALL;
+                        }
+                    }
+                }
+                
+                totalGrains = 0;
+                const fillTop = gy >= 0;
+                const yStart = fillTop ? TOP_Y + 15 : CY + 15;
+                const yEnd = fillTop ? CY - 10 : BOT_Y - 15;
+
+                for (let y = yStart; y <= yEnd; y++) {
+                    const hw = bulbHalfWidth(y) - 2;
+                    for (let x = CX - hw; x <= CX + hw; x++) {
+                        const idx = y * W + x;
+                        if (grid[idx] === EMPTY) {
+                            grid[idx] = SAND;
+                            colorShift[idx] = Math.floor(Math.random() * 4);
+                            totalGrains++;
+                        }
+                    }
+                }
+                startTime = performance.now();
+                finishedNotified = false;
+                throatBudget = 0;
+            }
+
+            function playChime() {
+                try {
+                    const actx = new (window.AudioContext || window.webkitAudioContext)();
+                    [880, 1318.5].forEach((freq, i) => {
+                        const osc = actx.createOscillator();
+                        const gain = actx.createGain();
+                        osc.frequency.value = freq;
+                        gain.gain.setValueAtTime(0.001, actx.currentTime + i * 0.16);
+                        gain.gain.exponentialRampToValueAtTime(0.1, actx.currentTime + i * 0.16 + 0.03);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + i * 0.16 + 1.1);
+                        osc.connect(gain);
+                        gain.connect(actx.destination);
+                        osc.start(actx.currentTime + i * 0.16);
+                        osc.stop(actx.currentTime + i * 0.16 + 1.15);
+                    });
+                } catch (e) {}
+            }
+
+            function showToast(msg) {
+                const toast = document.getElementById('toast');
+                toast.textContent = msg;
+                toast.style.opacity = '1';
+                setTimeout(() => toast.style.opacity = '0', 3000);
+            }
+
+            function setGravity(beta, gamma) {
+                const bRad = (beta * Math.PI) / 180;
+                const gRad = (gamma * Math.PI) / 180;
+                
+                let rawX = Math.sin(gRad) * Math.cos(bRad);
+                let rawY = Math.sin(bRad);
+
+                const screenAngle = (window.screen && window.screen.orientation ? window.screen.orientation.angle : window.orientation) || 0;
+                const aRad = (-screenAngle * Math.PI) / 180;
+                const cosA = Math.cos(aRad);
+                const sinA = Math.sin(aRad);
+
+                let nx = rawX * cosA - rawY * sinA;
+                let ny = rawX * sinA + rawY * cosA;
+
+                const mag = Math.hypot(nx, ny);
+                if (mag > 0.08) {
+                    gx = nx / mag;
+                    gy = ny / mag;
+                }
+            }
+
+            async function enableSensors() {
+                const btn = document.getElementById('btn-sensors');
+                
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    try {
+                        const res = await DeviceOrientationEvent.requestPermission();
+                        if (res === 'granted') {
+                            window.addEventListener('deviceorientation', (e) => setGravity(e.beta, e.gamma));
+                            sensorActive = true;
+                        }
+                    } catch(e) {}
+                } else {
+                    window.addEventListener('deviceorientation', (e) => setGravity(e.beta, e.gamma));
+                    sensorActive = true;
+                }
+
+                if (sensorActive) {
+                    btn.classList.remove('sensor-prompt', 'text-amber-300');
+                    btn.classList.add('text-emerald-300', 'border-emerald-500/40');
+                    document.getElementById('sensor-dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_8px_#34d399]';
+                    document.getElementById('sensor-label').textContent = 'Гіроскоп активний';
+                    showToast('Сенсори увімкнено!');
+                }
+            }
+            
+            document.getElementById('btn-sensors').addEventListener('click', enableSensors);
+
+            let dragging = false;
+            document.getElementById('stage').addEventListener('pointerdown', (e) => {
+                dragging = true;
+                updateDrag(e.clientX, e.clientY);
+            });
+            window.addEventListener('pointermove', (e) => {
+                if (dragging) updateDrag(e.clientX, e.clientY);
+            });
+            window.addEventListener('pointerup', () => dragging = false);
+
+            function updateDrag(cx, cy) {
+                const rect = canvas.getBoundingClientRect();
+                const dx = cx - (rect.left + rect.width / 2);
+                const dy = cy - (rect.top + rect.height / 2);
+                const mag = Math.hypot(dx, dy);
+                if (mag > 10) {
+                    gx = dx / mag;
+                    gy = dy / mag;
+                    manualInvert = gy < 0;
+                }
+            }
+
+            document.getElementById('btn-flip').addEventListener('click', () => {
+                manualInvert = !manualInvert;
+                gx = 0;
+                gy = manualInvert ? -1 : 1;
+                startTime = performance.now();
+                finishedNotified = false;
+            });
+
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                manualInvert = false;
+                if (!sensorActive) { gx = 0; gy = 1; }
+                fillSand();
+            });
+
+            document.getElementById('duration-group').addEventListener('click', (e) => {
+                const btn = e.target.closest('.dur-btn');
+                if (!btn) return;
+                document.querySelectorAll('.dur-btn').forEach(b => {
+                    b.classList.remove('active-dur', 'bg-amber-500/20', 'text-amber-300', 'border-amber-500/40');
+                    b.classList.add('text-slate-300');
+                    b.style.border = 'none';
+                });
+                btn.classList.add('active-dur', 'bg-amber-500/20', 'text-amber-300', 'border-amber-500/40');
+                btn.classList.remove('text-slate-300');
+                durationSec = Number(btn.dataset.sec);
+                fillSand();
+            });
+
+            document.getElementById('color-group').addEventListener('click', (e) => {
+                const btn = e.target.closest('.color-btn');
+                if (!btn) return;
+                document.querySelectorAll('.color-btn').forEach(b => {
+                    b.classList.remove('border-white', 'scale-110');
+                    b.classList.add('border-transparent', 'opacity-75');
+                });
+                btn.classList.remove('border-transparent', 'opacity-75');
+                btn.classList.add('border-white', 'scale-110');
+                currentTheme = THEMES[btn.dataset.theme];
+            });
+
+            const timerText = document.getElementById('timer-text');
+            document.getElementById('btn-toggle-timer').addEventListener('click', () => {
+                isTimerVisible = !isTimerVisible;
+                timerText.style.opacity = isTimerVisible ? '1' : '0.2';
+            });
+
+            if (!window.isSecureContext) {
+                document.getElementById('insecure-banner').classList.remove('hidden');
+            }
+
+            function swap(a, b) {
+                grid[b] = SAND;
+                grid[a] = EMPTY;
+                const tmp = colorShift[b];
+                colorShift[b] = colorShift[a];
+                colorShift[a] = tmp;
+            }
+
+            function stepPhysics(dt, activeHalfGrains) {
+                const elapsedSec = (performance.now() - startTime) / 1000;
+                const remainingTimeSec = Math.max(0.05, durationSec - elapsedSec);
+                const exactRate = activeHalfGrains > 0 ? activeHalfGrains / remainingTimeSec : 0;
+                throatBudget += exactRate * dt;
+
+                const dirY = gy >= 0 ? 1 : -1;
+                const absGx = Math.abs(gx);
+                const sideBias = gx >= 0 ? 1 : -1;
+
+                const yStart = dirY > 0 ? H - 2 : 1;
+                const yEnd = dirY > 0 ? 0 : H - 1;
+                const yStep = -dirY;
+
+                for (let y = yStart; y !== yEnd; y += yStep) {
+                    const leftToRight = Math.random() < 0.5;
+                    for (let i = 1; i < W - 1; i++) {
+                        const x = leftToRight ? i : W - 1 - i;
+                        const idx = y * W + x;
+                        if (grid[idx] !== SAND) continue;
+
+                        const isNeckRow = (y === CY || y === CY - dirY);
+                        if (isNeckRow && throatBudget < 1) continue;
+
+                        const ny = y + dirY;
+                        if (ny <= 0 || ny >= H - 1) continue;
+
+                        const slideFirst = absGx > 0.14 && Math.random() < Math.min(0.95, absGx * 1.8);
+                        
+                        const candidates = slideFirst 
+                            ? [{x: x + sideBias, y: ny}, {x: x, y: ny}, {x: x - sideBias, y: ny}]
+                            : [{x: x, y: ny}, {x: x + sideBias, y: ny}, {x: x - sideBias, y: ny}];
+
+                        let moved = false;
+                        for (let c of candidates) {
+                            if (c.x > 0 && c.x < W - 1) {
+                                const tIdx = c.y * W + c.x;
+                                if (grid[tIdx] === EMPTY) {
+                                    swap(idx, tIdx);
+                                    if (isNeckRow) throatBudget -= 1;
+                                    moved = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!moved && absGx > 0.1 && Math.random() < absGx) {
+                            const sx = x + sideBias;
+                            if (sx > 0 && sx < W - 1 && grid[y * W + sx] === EMPTY) {
+                                swap(idx, y * W + sx);
+                            }
+                        }
+                    }
+                }
+            }
+
+            function countActive() {
+                let count = 0;
+                const checkTop = gy >= 0;
+                for (let y = TOP_Y; y <= BOT_Y; y++) {
+                    if ((checkTop && y < CY) || (!checkTop && y > CY)) {
+                        for (let x = 1; x < W - 1; x++) {
+                            if (grid[y * W + x] === SAND) count++;
+                        }
+                    }
+                }
+                return count;
+            }
+
+            function render() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                ctx.save();
+                ctx.beginPath();
+                for (let y = TOP_Y; y <= BOT_Y; y++) {
+                    const hw = bulbHalfWidth(y);
+                    if (y === TOP_Y) ctx.moveTo((CX - hw) * SCALE, y * SCALE);
+                    else ctx.lineTo((CX - hw) * SCALE, y * SCALE);
+                }
+                for (let y = BOT_Y; y >= TOP_Y; y--) {
+                    ctx.lineTo((CX + bulbHalfWidth(y)) * SCALE, y * SCALE);
+                }
+                ctx.closePath();
+
+                const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                grad.addColorStop(0, 'rgba(255,255,255,0.08)');
+                grad.addColorStop(0.2, 'rgba(255,255,255,0.02)');
+                grad.addColorStop(0.8, 'rgba(255,255,255,0.04)');
+                grad.addColorStop(1, 'rgba(255,255,255,0.1)');
+                ctx.fillStyle = grad;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                ctx.stroke();
+
+                ctx.fillStyle = '#1e293b';
+                const capW = (MAX_HALF_W + 8) * 2 * SCALE;
+                const capX = CX * SCALE - capW / 2;
+                ctx.beginPath(); ctx.roundRect(capX, (TOP_Y - 8) * SCALE, capW, 10 * SCALE, 6); ctx.fill();
+                ctx.beginPath(); ctx.roundRect(capX, (BOT_Y - 2) * SCALE, capW, 10 * SCALE, 6); ctx.fill();
+                ctx.restore();
+
+                for (let y = TOP_Y; y <= BOT_Y; y++) {
+                    for (let x = 1; x < W - 1; x++) {
+                        const idx = y * W + x;
+                        if (grid[idx] === SAND) {
+                            ctx.fillStyle = currentTheme[colorShift[idx]];
+                            ctx.fillRect(x * SCALE, y * SCALE, SCALE, SCALE);
+                        }
+                    }
+                }
+            }
+
+            fillSand();
+            let lastTime = performance.now();
+
+            function loop(now) {
+                const dt = Math.min(0.05, (now - lastTime) / 1000);
+                lastTime = now;
+                const activeCount = countActive();
+
+                for (let i = 0; i < 5; i++) stepPhysics(dt / 5, activeCount);
+                render();
+
+                const angleDeg = Math.round(Math.atan2(gx, gy) * 180 / Math.PI);
+                document.getElementById('gravity-arrow').style.transform = `rotate(${-angleDeg}deg)`;
+                document.getElementById('angle-display').textContent = `${Math.abs(angleDeg)}°`;
+
+                const remSec = Math.max(0, Math.ceil((activeCount / totalGrains) * durationSec));
+                const mm = String(Math.floor(remSec / 60)).padStart(2, '0');
+                const ss = String(remSec % 60).padStart(2, '0');
+                timerText.textContent = `${mm}:${ss}`;
+
+                if (activeCount === 0 && !finishedNotified && now - startTime > 2000) {
+                    finishedNotified = true;
+                    playChime();
+                    showToast('Час вийшов!');
+                    if (navigator.vibrate) navigator.vibrate([120, 80, 180]);
+                }
+
+                requestAnimationFrame(loop);
+            }
+            requestAnimationFrame(loop);
+        })();
+    </script>
+</body>
+</html>
