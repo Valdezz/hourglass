@@ -64,7 +64,8 @@
         .sensor-prompt { animation: pulse-border 2.5s infinite; }
     </style>
 </head>
-<body class="flex flex-col justify-between items-center relative">
+<body>
+    <div id="app-wrapper" class="w-full h-full flex flex-col justify-between items-center relative transition-transform duration-700 ease-in-out">
 
     <!-- Верхня панель -->
     <header class="w-full max-w-md px-3 pt-4 pb-1 z-20 flex flex-col gap-2.5">
@@ -138,6 +139,7 @@
             </div>
         </div>
     </footer>
+    </div>
 
     <script>
         // 1. ДИНАМІЧНИЙ МАНІФЕСТ (ДЛЯ СТВОРЕННЯ PWA)
@@ -213,6 +215,7 @@
             const CY = Math.floor(H / 2);
             const TOP_Y = 16, BOT_Y = H - 16;
             const MAX_HALF_W = 60, NECK_HALF_W = 3;
+            let isUIFlipped = false;
 
             function bulbHalfWidth(y) {
                 const dy = Math.abs(y - CY);
@@ -337,12 +340,18 @@
 
             function updateDrag(cx, cy) {
                 const rect = canvas.getBoundingClientRect();
-                const dx = cx - (rect.left + rect.width / 2);
-                const dy = cy - (rect.top + rect.height / 2);
+                let dx = cx - (rect.left + rect.width / 2);
+                let dy = cy - (rect.top + rect.height / 2);
+                
+                // Інвертуємо керування пальцем, якщо екран візуально перевернутий
+                if (isUIFlipped) {
+                    dx = -dx;
+                    dy = -dy;
+                }
+
                 const mag = Math.hypot(dx, dy);
                 if (mag > 10) {
                     gx = dx / mag; gy = dy / mag;
-                    manualInvert = gy < 0;
                 }
             }
 
@@ -521,6 +530,12 @@
                     currentSide = newSide;
                     // ПІД ЧАС ПОВОРОТУ: міняємо місцями elapsed і remaining!
                     elapsedMs = durationMs - Math.min(elapsedMs, durationMs);
+                }
+
+                // Плавний розворот інтерфейсу, якщо змінилася сторона годинника і ми не тримаємо його пальцем
+                if (!dragging && isUIFlipped !== (currentSide === -1)) {
+                    isUIFlipped = currentSide === -1;
+                    document.getElementById('app-wrapper').style.transform = isUIFlipped ? 'rotate(180deg)' : 'rotate(0deg)';
                 }
 
                 // Якщо годинник лежить на боці (близько до горизонталі) - ставимо час на ПАУЗУ
